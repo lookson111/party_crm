@@ -123,6 +123,58 @@ party_crm/
 - `person/signals.py` references a broken signal pattern (signals on `User` model trying to create `Person`, but `Person` IS the user model)
 - Mixed code organization — some logic in services, some in views
 
+## Project Issues Audit
+
+### Critical Issues
+
+| # | File | Issue |
+|---|---|---|
+| C1 | `press/views.py:268,296,330,353` | `HttpResponse(request, '', status='200')` — `HttpResponse` takes content as first arg, not request. Renders `HttpRequest` object as string. Fix: `HttpResponse('', status=200)` |
+| C2 | `person/signals.py` | Broken signals on `django.contrib.auth.models.User` — `Person` IS the user model (`AUTH_USER_MODEL`), signals will never fire correctly and would crash. Delete entire file |
+| C3 | `press/views.py:312,316` | `title.strip == ''` — `.strip` is a method, needs parentheses: `title.strip() == ''`. As-is, validation never triggers |
+| C4 | `press/views.py:105` | Division by zero risk: `all_quantity // all_memb_count` when `all_memb_count` could be 0 |
+| C5 | `person/views.py:30-33` | `NoneType` error in profile view: if no matching `Sympathizer` found, `.filter(member_id=sympathizer.pk)` raises `AttributeError` |
+
+### High Severity
+
+| # | File | Issue |
+|---|---|---|
+| H1 | `press/views.py` | DELETE operations read ID from `request.GET.get('id')` — should use URL path params or `request.POST`, not query strings for destructive ops |
+| H2 | `config/settings.py` | No security settings: `SECURE_SSL_REDIRECT`, `SECURE_HSTS_SECONDS`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `SECURE_CONTENT_TYPE_NOSNIFF` all missing |
+| H3 | `config/settings.py:113` | No `local_settings.example.py` template for new devs/deployments |
+| H4 | `press/services/distributions.py:5`, `factory.py:4` | `filter(**filter_by)` accepts arbitrary dict from POST — whitelist allowed keys |
+
+### Medium Severity
+
+| # | File | Issue |
+|---|---|---|
+| M1 | `press/views.py:266` | `Town.objects.get(pk=pk)` raises `DoesNotExist` → 500. Use `get_object_or_404` |
+| M2 | `press/views.py` (all delete views) | No permission checks — any authenticated user can delete any object |
+| M3 | `press/models.py:87` | `Distribution.count_members()` broken: `len(self.party_members)` on `RelatedManager` — needs `.count()` |
+| M4 | `press/models.py:20` | Confusing `related_name='newspaper'` on `NewspaperNumber` — should be `related_name='numbers'` |
+| M5 | `press/views.py:287-300` | Unreachable code: `if request.method == 'DELETE'` should be `elif` (same in `newspaper`, `newspaper_numbers`) |
+| M6 | `press/services/report.py:41-49` | O(n*m) nested loop for member matching — use dict keyed by member ID |
+| M7 | `press/views.py:39-133` | `new_distrib` view ~90 lines with business logic — extract to service layer |
+| M8 | `press/views.py:124,134` | `print()` debug statements left in production — use `logging` |
+| M9 | `templates/base.html:11` | `meta_descripiton` typo — should be `meta_description` |
+
+### Low Severity / Technical Debt
+
+| # | File | Issue |
+|---|---|---|
+| L1 | `press/views.py` | DEPRECATED views still present: `new_party_member_distrib`, `new_sympathizer_distrib`, `hx_delete_party_member`, `hx_add_party_member` |
+| L2 | `press/services/report.py:52-72` | Commented-out "OLD REALISATION" code — remove (it's in git history) |
+| L3 | `press/views.py:365` | Typo: `err_lsit` → `err_list` |
+| L4 | Multiple | Typo: `factoryes` → `factories` |
+| L5 | Templates | Typo: `sypathizer_member_field.html` → `sympathizer_...` |
+| L6 | `press/models.py` | No custom `indexes = [...]` — `Distribution.distribution_date`, FK fields would benefit |
+| L7 | `press/models.py:80` | Typo: `autor` → `author` |
+| L8 | `press/admin.py:28-31` | `DistributionSympathizerMemberAdmin` has wrong inlines — belongs on `Distribution` admin |
+| L9 | `press/tests.py` | Empty test file — no coverage for views, services, or forms |
+| L10 | `person/models.py:38` | `Person.full_name`: if `last_name`/`first_name` is `None`, produces `"None John"` |
+| L11 | `person/views.py` | No brute-force/rate limiting on login |
+| L12 | `press/templates/press/new-distrib.html:32` | `max=datenow` only client-side — no server-side validation for future dates |
+
 ## Common Commands
 
 ```bash
