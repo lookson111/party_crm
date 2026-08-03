@@ -114,7 +114,6 @@ def new_distrib(request: HttpRequest):
                         cnt_memb[i] += 1
 
             for sympathizer in sympathizers_ids:
-                print(sympathizer)
                 DistributionSympathizerMember(
                     distribution=n_distrib,
                     member=sympathizer,
@@ -134,8 +133,6 @@ def new_distrib(request: HttpRequest):
             factoryes = FactoryPoint.objects.select_related('town').order_by('-town__title', 'title').all()
             result = render_block_to_string('press/all_distribution.html', 'main_content', {'distribs': distribs, 'factoryes': factoryes}, request)
             return HttpResponse(result)
-        else:
-            print(form.errors)
 
 
 @login_required()
@@ -190,7 +187,6 @@ def hx_add_party_member(request: HttpRequest):
     # DEPRECATED
     new_member = request.POST.get('select-party-members', None)
     if new_member is None:
-        print("пустой ID")
         return HttpResponse('', status='204')
     select_party_members = set(request.session.get('select_party_members', []))
     select_party_members.add(str(new_member))

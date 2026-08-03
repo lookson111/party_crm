@@ -198,7 +198,6 @@ AI-ассистенту разрешено выполнять без допол�
 - `press/views.py` (~287-300) — недостижимый код: `if request.method == 'DELETE'` должен быть `elif` (то же в `newspaper`, `newspaper_numbers`).
 - `press/services/report.py` (~41-49) — O(n*m) вложенный цикл сопоставления раздающих; заменить на dict по id.
 - `press/views.py` (~39-133) — `new_distrib` ~90 строк с бизнес-логикой; вынести в services.
-- `press/views.py` (~124, 134) — отладочные `print()` в проде; использовать `logging`.
 - `templates/base.html` (~11) — опечатка `meta_descripiton` → `meta_description`.
 
 ### Низкая важность / техдолг
