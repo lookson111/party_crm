@@ -164,3 +164,6 @@ node_modules
 *.sqlite3
 config/local_settings.py
 static/admin
+
+# Documentation (auto-generated)
+docs/django_and_database.md
