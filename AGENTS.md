@@ -52,6 +52,7 @@ party_crm/
 │   ├── management/commands/send_report.py  # Команда отправки месячного отчёта
 │   └── templates/press/     # Шаблоны приложения
 ├── helpers/common.py        # name_normalizer() — нормализация имён (убирает пробелы/знаки, lower)
+├── setup.sh                 # Развёртывание на новой системе (пакеты, PostgreSQL, venv, local_settings)
 ├── templates/               # Глобальные шаблоны: base.html, login.html, меню, error_alert.html
 ├── static/                  # css/, js/ (htmx, alpine, bootstrap, select2, jquery), service-worker.js
 ├── docs/
@@ -72,13 +73,18 @@ party_crm/
 ## Команды
 
 ```bash
-# Установка (виртуальное окружение)
+# Развёртывание на новой системе (Debian/Ubuntu): пакеты, PostgreSQL (пользователь
+# и БД), venv + зависимости, config/local_settings.py, миграции, правила Kimi Code.
+# Флаги: SKIP_PACKAGES, SKIP_POSTGRES, SKIP_VENV, SKIP_MIGRATE, INSTALL_KIMI_ALLOW=1|0
+./setup.sh
+
+# Ручная установка (виртуальное окружение)
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
-# Перед первым запуском: создать config/local_settings.py (шаблон — в README.md):
-# SECRET_KEY, DATABASES (PostgreSQL), EMAIL_*, REPORT_MONTH_EMAIL
-# Файл в .gitignore, шаблона-примера в репозитории нет
+# Перед первым запуском: создать config/local_settings.py (шаблон — в README.md,
+# setup.sh генерирует его автоматически): SECRET_KEY, DATABASES (PostgreSQL),
+# EMAIL_*, REPORT_MONTH_EMAIL. Файл в .gitignore, шаблона-примера в репозитории нет
 
 python manage.py migrate           # Миграции
 python manage.py createsuperuser   # Суперпользователь (по email)
@@ -90,6 +96,25 @@ python manage.py send_report       # Отправка Excel-отчёта на RE
 Production: Gunicorn (`requirements.txt`), WSGI — `config/wsgi.py`. Отдельных скриптов деплоя/CI в репозитории нет.
 
 Документация для пользователей — MkDocs (`docs/src/mkdocs.yml`), собирается стандартно (`mkdocs build` из `docs/src/`), тема `mkdocs`, язык `ru`.
+
+## Разрешённые команды
+
+AI-ассистенту разрешено выполнять без дополнительного подтверждения:
+
+- **Проверки и тесты Django:** `python manage.py check`, `python manage.py test`, `python manage.py showmigrations`, `python manage.py makemigrations` (создаёт только файлы миграций).
+- **Запуск сервера разработки:** `python manage.py runserver`.
+- **Git только на чтение:** `git status`, `git diff`, `git log`, `git show`, `git branch`.
+- **Окружение и процессы (только чтение):** `which`, `ls`, `grep`, `ps aux`.
+
+Всё остальное выполнять только после явного подтверждения пользователя:
+
+- прямые `git commit` / `git push` / `git reset` / `git rebase` и другие изменения репозитория;
+- `python manage.py migrate` (меняет состояние базы данных);
+- `python manage.py send_report` (отправляет реальные письма на `REPORT_MONTH_EMAIL`);
+- `python manage.py createsuperuser` и другие команды, создающие/меняющие данные;
+- удаление файлов, установка пакетов, операции вне каталога проекта.
+
+Команды из первого списка `setup.sh` умеет автоматически добавлять в `config.toml` Kimi Code как правила `[[permission.rules]]` с `decision = "allow"` (шаг 6, спрашивает при установке или управляется переменной `INSTALL_KIMI_ALLOW`). Блок правил помечен маркерами `# party-crm:`, поэтому при повторном запуске `setup.sh` он заменяется целиком, а не дублируется. При изменении этого списка обновляйте и шаг 6 в `setup.sh`, чтобы списки не расходились.
 
 ## URL-маршруты
 
