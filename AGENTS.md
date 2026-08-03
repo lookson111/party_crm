@@ -28,7 +28,6 @@ CRM для партийной работы РПР (Российская рабо
 party_crm/
 ├── config/                  # Настройки проекта Django
 │   ├── settings.py          # Основные настройки; в конце: from config.local_settings import *
-│   ├── test_settings.py     # SQLite + locmem-email для `python manage.py test --settings=config.test_settings`
 │   ├── urls.py              # Корневой URLconf: admin, login, press (корень), person (profile/)
 │   └── wsgi.py / asgi.py
 ├── person/                  # Приложение: пользователи и аутентификация
@@ -91,7 +90,6 @@ python manage.py migrate           # Миграции
 python manage.py createsuperuser   # Суперпользователь (по email)
 python manage.py runserver         # Сервер разработки
 python manage.py test              # Тесты (требует рабочий PostgreSQL из local_settings.py)
-python manage.py test --settings=config.test_settings  # Тесты на SQLite
 python manage.py send_report       # Отправка Excel-отчёта на REPORT_MONTH_EMAIL
 ```
 
@@ -151,18 +149,17 @@ AI-ассистенту разрешено выполнять без допол�
 
 ## Тестирование
 
-- Запуск: `python manage.py test` (требуется рабочий PostgreSQL из `local_settings.py`) или `python manage.py test --settings=config.test_settings` (SQLite, локальный `EMAIL_BACKEND`).
-- Фреймворк — стандартный `django.test.TestCase`, pytest не используется.
-- `config/test_settings.py` — отдельный settings-модуль для тестов на SQLite с `EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'`.
+- Запуск: `./run_tests.sh` — сам поднимает временный PostgreSQL-инстанс в `/tmp` (без sudo и системной БД, ищет бинарники в `/usr/lib/postgresql/*/bin`), прогоняет тесты и удаляет инстанс; флаг `--coverage` — измерение покрытия. `python manage.py test` напрямую требует рабочий PostgreSQL из `local_settings.py`.
+- Фреймворк — стандартный `django.test.TestCase`, pytest не используется. Отдельного settings-модуля для тестов нет; Django сам подменяет `EMAIL_BACKEND` на locmem при прогоне тестов.
 - Покрытие: `person/tests.py` (менеджер, модели, формы, view, сервис `auth_user`), `press/tests.py` (модели, формы, сервисы `distributions/factory/newspaper/report/mail`, все view включая deprecated и HTMX-ветки, management-команда `send_report`), `helpers/tests.py` (`name_normalizer`).
-- Измерение покрытия: `coverage run manage.py test --settings=config.test_settings && coverage report -m` (конфиг — `.coveragerc`: source = person/press/helpers, исключены миграции, тесты, config, `person/signals.py`). Текущее покрытие — 100% строк; недостижимые из-за известных багов ветки помечены `# pragma: no cover` с пояснением.
+- Измерение покрытия: `coverage run manage.py test && coverage report -m` (конфиг — `.coveragerc`: source = person/press/helpers, исключены миграции, тесты, config, `person/signals.py`). Текущее покрытие — 100% строк; недостижимые из-за известных багов ветки помечены `# pragma: no cover` с пояснением.
 - Тесты на известные баги оформляются как «фиксирует текущее поведение» (assertRaises/фактический результат + поясняющий docstring), без исправления кода.
 - При добавлении логики в `press` (views, services, forms) новые тесты писать в `press/tests.py` в стиле существующих `TestCase`.
 
 ## Безопасность и конфигурация
 
 - Секреты и настройки окружения — только в `config/local_settings.py` (в .gitignore): `SECRET_KEY`, `DATABASES`, `EMAIL_*`, `REPORT_MONTH_EMAIL`. Не коммитить этот файл.
-- `DEBUG`, `ALLOWED_HOSTS`, `STATIC_*` также задаются в `local_settings.py` (в `settings.py` их нет).
+- `DEBUG`, `ALLOWED_HOSTS` также задаются в `local_settings.py` (в `settings.py` их нет). `STATIC_URL` задан в `settings.py`, остальные `STATIC_*` — в `local_settings.py`.
 - HTTPS-hardening-настройки (`SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, HSTS и др.) не заданы — учитывать при деплой-изменениях.
 - Удаление объектов в `factory`, `newspaper`, `newspaper_numbers` читает id из `request.GET` при DELETE-запросе и не проверяет права — любой авторизованный пользователь может удалить любую запись.
 - В `my_distribution` POST-фильтры передаются напрямую в `distributions.get_all()` → `filter(**filter_by)` — при изменениях фильтров ограничивать допустимые ключи.
