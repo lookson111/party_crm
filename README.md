@@ -78,32 +78,11 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-3. Создайте файл `config/local_settings.py` с настройками базы данных и почты:
+3. Создайте файл `config/local_settings.py` по шаблону и заполните его:
 
-```python
-SECRET_KEY = 'your-secret-key-here'
-
-DEBUG = True
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
-
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'party_crm_db',
-        'USER': 'your_db_user',
-        'PASSWORD': 'your_db_password',
-        'HOST': 'localhost',
-        'PORT': '5432',
-    }
-}
-
-EMAIL_HOST = 'smtp.example.com'
-EMAIL_PORT = 587
-EMAIL_HOST_USER = 'your-email@example.com'
-EMAIL_HOST_PASSWORD = 'your-email-password'
-EMAIL_USE_TLS = True
-
-REPORT_MONTH_EMAIL = ['recipient@example.com']
+```bash
+cp config/local_settings.example.py config/local_settings.py
+# отредактируйте: SECRET_KEY, DATABASES, EMAIL_*, REPORT_MONTH_EMAIL
 ```
 
 4. Выполните миграции:

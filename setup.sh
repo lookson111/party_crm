@@ -4,7 +4,8 @@
 #   1. Системные пакеты: python3, python3-venv, git, postgresql.
 #   2. База данных PostgreSQL: пользователь и БД для проекта (идемпотентно).
 #   3. Виртуальное окружение venv/ и зависимости из requirements.txt.
-#   4. config/local_settings.py с сгенерированным SECRET_KEY (только если файла нет;
+#   4. config/local_settings.py из шаблона config/local_settings.example.py
+#      с подставленными SECRET_KEY и параметрами БД (только если файла нет;
 #      в существующем файле синхронизируется пароль БД).
 #   5. По запросу — разрешённые команды проекта в config.toml Kimi Code
 #      (правила [[permission.rules]], см. «Разрешённые команды» в AGENTS.md).
@@ -30,8 +31,8 @@
 #   APP_ALLOWED_HOSTS — домены через запятую для ALLOWED_HOSTS
 #                       (напр. "crm.example.com,www.crm.example.com";
 #                       если не задано — 'localhost' с TODO)
-#   HTTPS=1|0           — генерировать настройки TLS (SECURE_SSL_REDIRECT,
-#                         secure-куки, HSTS). По умолчанию 1
+#   HTTPS=1|0           — включить настройки TLS в local_settings.py
+#                         (SECURE_SSL_REDIRECT, secure-куки, HSTS). По умолчанию 1
 #
 # Параметры БД (используются в local_settings.py и при создании БД):
 #   DB_NAME     (по умолчанию party_crm_db)
@@ -138,95 +139,41 @@ if [ -f config/local_settings.py ]; then
     fi
 else
     SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(50))')"
+    cp config/local_settings.example.py config/local_settings.py
+    # Подставляем реальные значения в скопированный шаблон.
+    # _esc экранирует спецсимволы replacement-строки sed (разделитель — |).
+    _esc() { printf '%s' "$1" | sed 's/[&|\\]/\\&/g'; }
+    sed -i \
+        -e "s|SECRET_KEY = 'your-secret-key-here'|SECRET_KEY = '$(_esc "$SECRET_KEY")'|" \
+        -e "s|'NAME': 'party_crm_db'|'NAME': '$(_esc "$DB_NAME")'|" \
+        -e "s|'USER': 'your_db_user'|'USER': '$(_esc "$DB_USER")'|" \
+        -e "s|'PASSWORD': 'your_db_password'|'PASSWORD': '$(_esc "$DB_PASSWORD")'|" \
+        -e "s|'HOST': 'localhost'|'HOST': '$(_esc "$DB_HOST")'|" \
+        -e "s|'PORT': '5432'|'PORT': '$(_esc "$DB_PORT")'|" \
+        config/local_settings.py
     if [ "$MODE" = "prod" ]; then
         APP_ALLOWED_HOSTS="${APP_ALLOWED_HOSTS:-}"
         if [ -z "$APP_ALLOWED_HOSTS" ]; then
-            ALLOWED_HOSTS_TODO="# TODO: указать домены (APP_ALLOWED_HOSTS при запуске setup.sh)
-"
             ALLOWED_HOSTS_PY="'localhost'"
             echo "ПРЕДУПРЕЖДЕНИЕ: APP_ALLOWED_HOSTS не задан, в ALLOWED_HOSTS подставлен 'localhost'."
         else
-            ALLOWED_HOSTS_TODO=""
             ALLOWED_HOSTS_PY="'$(echo "$APP_ALLOWED_HOSTS" | sed "s/ *, */','/g")'"
         fi
+        # Включаем продакшен-блок шаблона: DEBUG=False, ALLOWED_HOSTS, STATIC_ROOT
+        sed -i \
+            -e "s|^DEBUG = True|DEBUG = False|" \
+            -e "s|^ALLOWED_HOSTS = .*|ALLOWED_HOSTS = [$(_esc "$ALLOWED_HOSTS_PY")]|" \
+            -e "s|^# from pathlib import Path|from pathlib import Path|" \
+            -e "s|^# STATIC_ROOT = |STATIC_ROOT = |" \
+            config/local_settings.py
         HTTPS="${HTTPS:-1}"
         if [ "$HTTPS" = "1" ]; then
-            HTTPS_SETTINGS="SECURE_SSL_REDIRECT = True
-SECURE_HSTS_SECONDS = 15768000
-SESSION_COOKIE_SECURE = True
-CSRF_COOKIE_SECURE = True"
-        else
-            HTTPS_SETTINGS="# HTTPS=0: раскомментируйте после настройки TLS
-#SECURE_SSL_REDIRECT = True
-#SECURE_HSTS_SECONDS = 15768000
-#SESSION_COOKIE_SECURE = True
-#CSRF_COOKIE_SECURE = True"
+            # Раскомментируем HTTPS-hardening-настройки (при HTTPS=0 остаются закомментированными)
+            sed -i "s/^# \(SECURE_SSL_REDIRECT\|SECURE_HSTS_SECONDS\|SESSION_COOKIE_SECURE\|CSRF_COOKIE_SECURE\|SECURE_CONTENT_TYPE_NOSNIFF\) = /\1 = /" config/local_settings.py
         fi
-        cat > config/local_settings.py <<EOF
-# Сгенерировано setup.sh (режим prod) $(date +%Y-%m-%d). Файл в .gitignore, не коммитить.
-from pathlib import Path
-
-SECRET_KEY = '$SECRET_KEY'
-
-DEBUG = False
-${ALLOWED_HOSTS_TODO}ALLOWED_HOSTS = [$ALLOWED_HOSTS_PY]
-
-STATIC_ROOT = Path(__file__).resolve().parent.parent / 'staticfiles'
-
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': '$DB_NAME',
-        'USER': '$DB_USER',
-        'PASSWORD': '$DB_PASSWORD',
-        'HOST': '$DB_HOST',
-        'PORT': '$DB_PORT',
-    }
-}
-
-# TODO: заполнить настройки почты для отправки отчётов
-EMAIL_HOST = 'smtp.example.com'
-EMAIL_PORT = 587
-EMAIL_HOST_USER = 'your-email@example.com'
-EMAIL_HOST_PASSWORD = 'your-email-password'
-EMAIL_USE_TLS = True
-
-REPORT_MONTH_EMAIL = ['recipient@example.com']
-
-# HTTPS-hardening
-SECURE_CONTENT_TYPE_NOSNIFF = True
-$HTTPS_SETTINGS
-EOF
-        echo "Создан config/local_settings.py (режим prod). Заполните EMAIL_* и проверьте ALLOWED_HOSTS."
+        echo "Создан config/local_settings.py из шаблона (режим prod). Заполните EMAIL_* и проверьте ALLOWED_HOSTS."
     else
-        cat > config/local_settings.py <<EOF
-# Сгенерировано setup.sh (режим dev) $(date +%Y-%m-%d). Файл в .gitignore, не коммитить.
-SECRET_KEY = '$SECRET_KEY'
-
-DEBUG = True
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
-
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': '$DB_NAME',
-        'USER': '$DB_USER',
-        'PASSWORD': '$DB_PASSWORD',
-        'HOST': '$DB_HOST',
-        'PORT': '$DB_PORT',
-    }
-}
-
-# TODO: заполнить настройки почты для отправки отчётов
-EMAIL_HOST = 'smtp.example.com'
-EMAIL_PORT = 587
-EMAIL_HOST_USER = 'your-email@example.com'
-EMAIL_HOST_PASSWORD = 'your-email-password'
-EMAIL_USE_TLS = True
-
-REPORT_MONTH_EMAIL = ['recipient@example.com']
-EOF
-        echo "Создан config/local_settings.py. Заполните настройки почты (EMAIL_*)."
+        echo "Создан config/local_settings.py из шаблона (режим dev). Заполните настройки почты (EMAIL_*)."
     fi
 fi
 

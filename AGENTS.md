@@ -31,6 +31,7 @@ party_crm/
 ├── config/                  # Настройки проекта Django
 │   ├── settings.py          # Основные настройки; в конце: local_settings, иначе docker_settings
 │   ├── docker_settings.py   # Настройки из переменных окружения (Docker, .env)
+│   ├── local_settings.example.py  # Шаблон локальных настроек (копируется в local_settings.py)
 │   ├── urls.py              # Корневой URLconf: admin, login, press (корень), person (profile/)
 │   └── wsgi.py / asgi.py
 ├── person/                  # Приложение: пользователи и аутентификация
@@ -96,9 +97,10 @@ party_crm/
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
-# Перед первым запуском: создать config/local_settings.py (шаблон — в README.md,
-# setup.sh генерирует его автоматически): SECRET_KEY, DATABASES (PostgreSQL),
-# EMAIL_*, REPORT_MONTH_EMAIL. Файл в .gitignore, шаблона-примера в репозитории нет
+# Перед первым запуском: создать config/local_settings.py (setup.sh копирует
+# config/local_settings.example.py и подставляет SECRET_KEY и параметры БД
+# автоматически): SECRET_KEY, DATABASES (PostgreSQL),
+# EMAIL_*, REPORT_MONTH_EMAIL. Файл в .gitignore, шаблон-пример — в репозитории
 
 python manage.py migrate           # Миграции
 python manage.py createsuperuser   # Суперпользователь (по email)
@@ -185,7 +187,7 @@ AI-ассистенту разрешено выполнять без допол�
 - Секреты и настройки окружения — только в `config/local_settings.py` (в .gitignore): `SECRET_KEY`, `DATABASES`, `EMAIL_*`, `REPORT_MONTH_EMAIL`. Не коммитить этот файл.
 - Если `config/local_settings.py` отсутствует, `config/settings.py` подключает `config/docker_settings.py` — настройки из переменных окружения (режим Docker, образец — `.env.example`, файл `.env` в .gitignore).
 - `DEBUG`, `ALLOWED_HOSTS` также задаются в `local_settings.py` (в `settings.py` их нет). `STATIC_URL` и `STATICFILES_DIRS` (корневой `static/`) заданы в `settings.py`, остальные `STATIC_*` — в `local_settings.py`.
-- HTTPS-hardening-настройки (`SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `SECURE_HSTS_SECONDS`, `SECURE_CONTENT_TYPE_NOSNIFF`) генерируются `setup.sh prod` в `local_settings.py` (при `HTTPS=0` — закомментированными); в `settings.py` и dev-шаблоне их нет.
+- HTTPS-hardening-настройки (`SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `SECURE_HSTS_SECONDS`, `SECURE_CONTENT_TYPE_NOSNIFF`) в `settings.py` не заданы; в шаблоне `config/local_settings.example.py` присутствуют закомментированными — `setup.sh prod` раскомментирует их (при `HTTPS=0` оставляет закомментированными).
 - Удаление объектов в `factory`, `newspaper`, `newspaper_numbers` читает id из `request.GET` при DELETE-запросе и не проверяет права — любой авторизованный пользователь может удалить любую запись.
 - В `my_distribution` POST-фильтры передаются напрямую в `distributions.get_all()` → `filter(**filter_by)` — при изменениях фильтров ограничивать допустимые ключи.
 
@@ -208,7 +210,7 @@ AI-ассистенту разрешено выполнять без допол�
 
 - `press/views.py` — DELETE-операции читают id из `request.GET.get('id')`; для деструктивных операций лучше URL-параметры или `request.POST`.
 - `config/settings.py` — не заданы `SECURE_SSL_REDIRECT`, `SECURE_HSTS_SECONDS`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `SECURE_CONTENT_TYPE_NOSNIFF` (prod-шаблон `setup.sh` генерирует их в `local_settings.py`, но существующие prod-инстансы, развёрнутые вручную, могли их не задать).
-- Нет шаблона `local_settings.example.py` для новых разработчиков/деплоев.
+- Существующие prod-инстансы, развёрнутые вручную, могли не задать HTTPS-hardening-настройки (есть в шаблоне `config/local_settings.example.py` и в prod-генерации `setup.sh`).
 - `press/services/distributions.py`, `factory.py` — `filter(**filter_by)` принимает произвольный dict из POST; нужен белый список ключей.
 
 ### Средняя важность
