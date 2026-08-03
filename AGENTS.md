@@ -8,9 +8,11 @@ CRM для партийной работы РПР (Российская рабо
 
 **Технологический стек:**
 - Backend: Django 4.2 (Python), Gunicorn для production
-- База данных: PostgreSQL (драйвер psycopg 3)
+- База данных: PostgreSQL (драйвер psycopg 3, пакет `psycopg[binary]`)
 - Frontend: HTMX (django-htmx), Alpine.js, Bootstrap 5, Select2, jQuery — всё лежит локально в `static/`
 - Отчёты: XlsxWriter
+- Статика в production: WhiteNoise (middleware в `config/settings.py`)
+- Контейнеризация: Dockerfile + docker-compose.yml (app + PostgreSQL)
 - Шаблоны: Django Templates + `django-render-block` (частичный рендеринг блоков) + `django-widget-tweaks`
 
 Зависимости — только в `requirements.txt` (без pyproject.toml/poetry). Конфигурационных файлов сборки (package.json, Cargo.toml и т.п.) нет; `package.json` и `node_modules` явно добавлены в `.gitignore`.
@@ -27,7 +29,8 @@ CRM для партийной работы РПР (Российская рабо
 ```
 party_crm/
 ├── config/                  # Настройки проекта Django
-│   ├── settings.py          # Основные настройки; в конце: from config.local_settings import *
+│   ├── settings.py          # Основные настройки; в конце: local_settings, иначе docker_settings
+│   ├── docker_settings.py   # Настройки из переменных окружения (Docker, .env)
 │   ├── urls.py              # Корневой URLconf: admin, login, press (корень), person (profile/)
 │   └── wsgi.py / asgi.py
 ├── person/                  # Приложение: пользователи и аутентификация
@@ -53,6 +56,11 @@ party_crm/
 │   └── templates/press/     # Шаблоны приложения
 ├── helpers/common.py        # name_normalizer() — нормализация имён (убирает пробелы/знаки, lower)
 ├── setup.sh                 # Развёртывание на новой системе (пакеты, PostgreSQL, venv, local_settings); режимы dev/prod
+├── Dockerfile               # Образ приложения (python:3.12-slim, gunicorn)
+├── docker-compose.yml       # Запуск в Docker: сервисы app (gunicorn) и db (postgres:16-alpine, volume pgdata)
+├── docker/entrypoint.sh     # Точка входа контейнера: migrate → collectstatic → gunicorn
+├── .env.example             # Образец переменных окружения для Docker (копируется в .env)
+├── .dockerignore            # Исключения контекста сборки (venv, .env, local_settings.py и т.п.)
 ├── deploy/                  # Генерируется `setup.sh prod` (gunicorn.conf.py, party-crm.service); в .gitignore
 ├── templates/               # Глобальные шаблоны: base.html, login.html, меню, error_alert.html
 ├── static/                  # css/, js/ (htmx, alpine, bootstrap, select2, jquery), service-worker.js
@@ -97,6 +105,16 @@ python manage.py createsuperuser   # Суперпользователь (по em
 python manage.py runserver         # Сервер разработки
 python manage.py test              # Тесты (требует рабочий PostgreSQL из local_settings.py)
 python manage.py send_report       # Отправка Excel-отчёта на REPORT_MONTH_EMAIL
+```
+
+Запуск в Docker:
+
+```bash
+cp .env.example .env               # заполнить SECRET_KEY, DB_PASSWORD, EMAIL_*
+docker compose up --build -d       # приложение + PostgreSQL, миграции и статика — при старте
+docker compose exec app python manage.py createsuperuser
+docker compose logs -f app         # логи приложения
+docker compose down                # остановка (данные БД остаются в volume pgdata)
 ```
 
 Production: Gunicorn (`requirements.txt`), WSGI — `config/wsgi.py`. Развёртывание — `./setup.sh prod` (генерирует systemd-юнит `deploy/party-crm.service`, установка вручную). CI в репозитории нет.
@@ -165,7 +183,8 @@ AI-ассистенту разрешено выполнять без допол�
 ## Безопасность и конфигурация
 
 - Секреты и настройки окружения — только в `config/local_settings.py` (в .gitignore): `SECRET_KEY`, `DATABASES`, `EMAIL_*`, `REPORT_MONTH_EMAIL`. Не коммитить этот файл.
-- `DEBUG`, `ALLOWED_HOSTS` также задаются в `local_settings.py` (в `settings.py` их нет). `STATIC_URL` задан в `settings.py`, остальные `STATIC_*` — в `local_settings.py`.
+- Если `config/local_settings.py` отсутствует, `config/settings.py` подключает `config/docker_settings.py` — настройки из переменных окружения (режим Docker, образец — `.env.example`, файл `.env` в .gitignore).
+- `DEBUG`, `ALLOWED_HOSTS` также задаются в `local_settings.py` (в `settings.py` их нет). `STATIC_URL` и `STATICFILES_DIRS` (корневой `static/`) заданы в `settings.py`, остальные `STATIC_*` — в `local_settings.py`.
 - HTTPS-hardening-настройки (`SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `SECURE_HSTS_SECONDS`, `SECURE_CONTENT_TYPE_NOSNIFF`) генерируются `setup.sh prod` в `local_settings.py` (при `HTTPS=0` — закомментированными); в `settings.py` и dev-шаблоне их нет.
 - Удаление объектов в `factory`, `newspaper`, `newspaper_numbers` читает id из `request.GET` при DELETE-запросе и не проверяет права — любой авторизованный пользователь может удалить любую запись.
 - В `my_distribution` POST-фильтры передаются напрямую в `distributions.get_all()` → `filter(**filter_by)` — при изменениях фильтров ограничивать допустимые ключи.

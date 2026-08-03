@@ -21,6 +21,36 @@ CRM для партийной работы РПР (Российская рабо
 
 ## Установка
 
+### В Docker
+
+Самый простой способ запустить CRM — Docker Compose (приложение + PostgreSQL):
+
+1. Создайте файл окружения и заполните его:
+
+```bash
+cp .env.example .env
+# отредактируйте .env: SECRET_KEY, DB_PASSWORD, ALLOWED_HOSTS, EMAIL_*
+```
+
+2. Соберите и запустите:
+
+```bash
+docker compose up --build -d
+```
+
+При старте контейнер сам применяет миграции и собирает статику
+(см. `docker/entrypoint.sh`). CRM доступна на `http://localhost:8000`.
+
+3. Создайте суперпользователя:
+
+```bash
+docker compose exec app python manage.py createsuperuser
+```
+
+Данные PostgreSQL хранятся в volume `pgdata`. Настройки контейнер читает из
+переменных окружения (`.env`) через `config/docker_settings.py` — он
+подключается автоматически, если нет `config/local_settings.py`.
+
 ### Для разработки
 
 Быстрый способ — скрипт `setup.sh` (Debian/Ubuntu): установит системные пакеты,
