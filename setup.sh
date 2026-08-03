@@ -4,7 +4,8 @@
 #   1. Системные пакеты: python3, python3-venv, git, postgresql.
 #   2. База данных PostgreSQL: пользователь и БД для проекта (идемпотентно).
 #   3. Виртуальное окружение venv/ и зависимости из requirements.txt.
-#   4. config/local_settings.py с сгенерированным SECRET_KEY (только если файла нет).
+#   4. config/local_settings.py с сгенерированным SECRET_KEY (только если файла нет;
+#      в существующем файле синхронизируется пароль БД).
 #   5. По запросу — разрешённые команды проекта в config.toml Kimi Code
 #      (правила [[permission.rules]], см. «Разрешённые команды» в AGENTS.md).
 #
@@ -91,12 +92,15 @@ else
         DB_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
         echo "Пароль БД сгенерирован (записан в config/local_settings.py)."
     fi
-    # Идемпотентно: создаём пользователя и БД, только если их ещё нет
+    # Идемпотентно: создаём пользователя и БД, только если их ещё нет.
+    # Пароль синхронизируем всегда: иначе при уже существующем пользователе
+    # он может не совпадать с паролем в config/local_settings.py (шаг 4).
     if ! $SUDO -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'" | grep -qx 1; then
         $SUDO -u postgres psql -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASSWORD';"
         echo "Пользователь PostgreSQL $DB_USER создан."
     else
-        echo "Пользователь PostgreSQL $DB_USER уже существует."
+        $SUDO -u postgres psql -c "ALTER USER $DB_USER WITH PASSWORD '$DB_PASSWORD';"
+        echo "Пользователь PostgreSQL $DB_USER уже существует, пароль синхронизирован."
     fi
     if ! $SUDO -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'" | grep -qx 1; then
         $SUDO -u postgres createdb -O "$DB_USER" "$DB_NAME"
@@ -125,7 +129,13 @@ fi
 echo "=== Шаг 4. config/local_settings.py ==="
 
 if [ -f config/local_settings.py ]; then
-    echo "config/local_settings.py уже существует, не трогаем."
+    if [ "${SKIP_POSTGRES:-0}" != "1" ] && [ -n "$DB_PASSWORD" ]; then
+        # Пароль в файле должен совпадать с паролем, установленным на шаге 2
+        sed -i "s/'PASSWORD': '.*'/'PASSWORD': '$DB_PASSWORD'/" config/local_settings.py
+        echo "config/local_settings.py уже существует; пароль БД синхронизирован с PostgreSQL."
+    else
+        echo "config/local_settings.py уже существует, не трогаем."
+    fi
 else
     SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(50))')"
     if [ "$MODE" = "prod" ]; then
