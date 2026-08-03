@@ -154,7 +154,9 @@ AI-ассистенту разрешено выполнять без допол�
 - Запуск: `python manage.py test` (требуется рабочий PostgreSQL из `local_settings.py`) или `python manage.py test --settings=config.test_settings` (SQLite, локальный `EMAIL_BACKEND`).
 - Фреймворк — стандартный `django.test.TestCase`, pytest не используется.
 - `config/test_settings.py` — отдельный settings-модуль для тестов на SQLite с `EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'`.
-- Покрытие: `person/tests.py` (менеджеры, модели, view, сервис `auth_user`) и `press/tests.py` (модели, формы, сервисы `distributions/factory/newspaper/report/mail`, view, management-команда `send_report`).
+- Покрытие: `person/tests.py` (менеджер, модели, формы, view, сервис `auth_user`), `press/tests.py` (модели, формы, сервисы `distributions/factory/newspaper/report/mail`, все view включая deprecated и HTMX-ветки, management-команда `send_report`), `helpers/tests.py` (`name_normalizer`).
+- Измерение покрытия: `coverage run manage.py test --settings=config.test_settings && coverage report -m` (конфиг — `.coveragerc`: source = person/press/helpers, исключены миграции, тесты, config, `person/signals.py`). Текущее покрытие — 100% строк; недостижимые из-за известных багов ветки помечены `# pragma: no cover` с пояснением.
+- Тесты на известные баги оформляются как «фиксирует текущее поведение» (assertRaises/фактический результат + поясняющий docstring), без исправления кода.
 - При добавлении логики в `press` (views, services, forms) новые тесты писать в `press/tests.py` в стиле существующих `TestCase`.
 
 ## Безопасность и конфигурация
@@ -176,6 +178,9 @@ AI-ассистенту разрешено выполнять без допол�
 - `press/views.py` (~312, 316, view `newspaper`) — `title.strip == ''` без скобок: `.strip` — метод, проверка пустой строки никогда не срабатывает. Нужно `title.strip() == ''`.
 - `press/views.py` (~105, `new_distrib`) — риск деления на ноль: `all_quantity // all_memb_count`, когда раздающих 0.
 - `person/views.py` (~30-33, profile) — для не-члена партии ищется `Sympathizer` по ФИО; если не найден — `AttributeError` на `.pk`.
+- `press/services/report.py` (`_report_month`) — в январе до 4-го числа возвращается декабрь ТОГО ЖЕ года (`replace(month=12)` без уменьшения года), а не прошлого.
+- `press/views.py` (~283, view `factory`) — невалидная форма падает с TypeError: `"\n".join(...)` по `ErrorList` вместо строк.
+- `press/services/report.py` (~138) — раздача без номеров газет роняет отчёт: `distrib.numbers.all()[0]` → IndexError.
 
 ### Высокая важность (безопасность)
 
@@ -203,7 +208,6 @@ AI-ассистенту разрешено выполнять без допол�
 - Опечатки: `err_lsit` → `err_list` (`press/views.py` ~365), `factoryes`/`fabrics` → `factories`, `sypathizer_member_field.html` → `sympathizer_...`, `hx-delete-pary-member` в URL, `autor` → `author` (`press/models.py` ~80, требует миграции).
 - `press/models.py` — нет индексов: `Distribution.distribution_date` и FK-поля выиграли бы от них.
 - `press/admin.py` (~28-31) — у `DistributionSympathizerMemberAdmin` неверные inlines (должны быть в админке `Distribution`).
-- `press/tests.py` — пустой: нет покрытия views, services, forms.
 - `person/models.py` (~38) — `Person.full_name`: при `last_name`/`first_name = None` получается `"None Иван"`.
 - `person/views.py` — нет rate limiting / защиты от брутфорса на логине.
 - `press/templates/press/new-distrib.html` (~32) — `max=datenow` только на клиенте; нет серверной валидации даты в будущем.
