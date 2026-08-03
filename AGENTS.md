@@ -28,6 +28,7 @@ CRM для партийной работы РПР (Российская рабо
 party_crm/
 ├── config/                  # Настройки проекта Django
 │   ├── settings.py          # Основные настройки; в конце: from config.local_settings import *
+│   ├── test_settings.py     # SQLite + locmem-email для `python manage.py test --settings=config.test_settings`
 │   ├── urls.py              # Корневой URLconf: admin, login, press (корень), person (profile/)
 │   └── wsgi.py / asgi.py
 ├── person/                  # Приложение: пользователи и аутентификация
@@ -89,7 +90,8 @@ pip install -r requirements.txt
 python manage.py migrate           # Миграции
 python manage.py createsuperuser   # Суперпользователь (по email)
 python manage.py runserver         # Сервер разработки
-python manage.py test              # Тесты
+python manage.py test              # Тесты (требует рабочий PostgreSQL из local_settings.py)
+python manage.py test --settings=config.test_settings  # Тесты на SQLite
 python manage.py send_report       # Отправка Excel-отчёта на REPORT_MONTH_EMAIL
 ```
 
@@ -149,10 +151,11 @@ AI-ассистенту разрешено выполнять без допол�
 
 ## Тестирование
 
-- Запуск: `python manage.py test`. Фреймворк — стандартный `django.test.TestCase`, pytest не используется.
-- Покрытие минимальное: только `person/tests.py` (тесты `CustomUserManager`: create_user/create_superuser). `press/tests.py` пуст.
+- Запуск: `python manage.py test` (требуется рабочий PostgreSQL из `local_settings.py`) или `python manage.py test --settings=config.test_settings` (SQLite, локальный `EMAIL_BACKEND`).
+- Фреймворк — стандартный `django.test.TestCase`, pytest не используется.
+- `config/test_settings.py` — отдельный settings-модуль для тестов на SQLite с `EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'`.
+- Покрытие: `person/tests.py` (менеджеры, модели, view, сервис `auth_user`) и `press/tests.py` (модели, формы, сервисы `distributions/factory/newspaper/report/mail`, view, management-команда `send_report`).
 - При добавлении логики в `press` (views, services, forms) новые тесты писать в `press/tests.py` в стиле существующих `TestCase`.
-- Для запуска тестов нужен `config/local_settings.py`; при необходимости можно переопределить `DATABASES` на SQLite в отдельном тестовом settings-модуле.
 
 ## Безопасность и конфигурация
 
