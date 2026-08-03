@@ -21,6 +21,18 @@ CRM для партийной работы РПР (Российская рабо
 
 ## Установка
 
+### Для разработки
+
+Быстрый способ — скрипт `setup.sh` (Debian/Ubuntu): установит системные пакеты,
+PostgreSQL-пользователя и БД, venv с зависимостями, сгенерирует
+`config/local_settings.py` (режим разработчика, `DEBUG=True`) и применит миграции:
+
+```bash
+./setup.sh          # или явно: ./setup.sh dev
+```
+
+Либо вручную:
+
 1. Клонируйте репозиторий:
 
 ```bash
@@ -40,6 +52,9 @@ pip install -r requirements.txt
 
 ```python
 SECRET_KEY = 'your-secret-key-here'
+
+DEBUG = True
+ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
 
 DATABASES = {
     'default': {
@@ -78,6 +93,28 @@ python manage.py createsuperuser
 ```bash
 python manage.py runserver
 ```
+
+### Для продакшена
+
+Используйте prod-режим `setup.sh`:
+
+```bash
+APP_ALLOWED_HOSTS="crm.example.com,www.crm.example.com" ./setup.sh prod
+```
+
+Отличия от режима разработчика:
+
+- `config/local_settings.py` генерируется с `DEBUG=False`, `ALLOWED_HOSTS`
+  (из `APP_ALLOWED_HOSTS`, домены через запятую), `STATIC_ROOT` и
+  HTTPS-hardening-настройками (`SECURE_SSL_REDIRECT`, secure-куки, HSTS —
+  отключаются переменной `HTTPS=0`);
+- выполняется `collectstatic` в `staticfiles/`;
+- генерируются `deploy/gunicorn.conf.py` и `deploy/party-crm.service`
+  (systemd-юнит с реальными путями; команды установки печатаются в конце
+  скрипта, сам юнит скрипт не устанавливает).
+
+После завершения: заполните `EMAIL_*` в `config/local_settings.py`, установите
+systemd-юнит и настройте nginx как reverse proxy с TLS.
 
 ## Использование
 

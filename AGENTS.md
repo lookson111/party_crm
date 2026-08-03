@@ -52,7 +52,8 @@ party_crm/
 │   ├── management/commands/send_report.py  # Команда отправки месячного отчёта
 │   └── templates/press/     # Шаблоны приложения
 ├── helpers/common.py        # name_normalizer() — нормализация имён (убирает пробелы/знаки, lower)
-├── setup.sh                 # Развёртывание на новой системе (пакеты, PostgreSQL, venv, local_settings)
+├── setup.sh                 # Развёртывание на новой системе (пакеты, PostgreSQL, venv, local_settings); режимы dev/prod
+├── deploy/                  # Генерируется `setup.sh prod` (gunicorn.conf.py, party-crm.service); в .gitignore
 ├── templates/               # Глобальные шаблоны: base.html, login.html, меню, error_alert.html
 ├── static/                  # css/, js/ (htmx, alpine, bootstrap, select2, jquery), service-worker.js
 ├── docs/
@@ -75,8 +76,13 @@ party_crm/
 ```bash
 # Развёртывание на новой системе (Debian/Ubuntu): пакеты, PostgreSQL (пользователь
 # и БД), venv + зависимости, config/local_settings.py, миграции, правила Kimi Code.
+# Два режима: dev (по умолчанию, DEBUG=True) и prod (DEBUG=False, ALLOWED_HOSTS из
+# APP_ALLOWED_HOSTS, STATIC_ROOT + collectstatic в staticfiles/, HTTPS-hardening
+# (отключается HTTPS=0), генерация deploy/gunicorn.conf.py и deploy/party-crm.service).
 # Флаги: SKIP_PACKAGES, SKIP_POSTGRES, SKIP_VENV, SKIP_MIGRATE, INSTALL_KIMI_ALLOW=1|0
-./setup.sh
+# Параметры prod: APP_ALLOWED_HOSTS="домены,через,запятую", HTTPS=1|0
+./setup.sh          # или ./setup.sh dev — для разработчика
+./setup.sh prod     # для запуска CRM в продакшене
 
 # Ручная установка (виртуальное окружение)
 python -m venv venv && source venv/bin/activate
@@ -93,7 +99,7 @@ python manage.py test              # Тесты (требует рабочий P
 python manage.py send_report       # Отправка Excel-отчёта на REPORT_MONTH_EMAIL
 ```
 
-Production: Gunicorn (`requirements.txt`), WSGI — `config/wsgi.py`. Отдельных скриптов деплоя/CI в репозитории нет.
+Production: Gunicorn (`requirements.txt`), WSGI — `config/wsgi.py`. Развёртывание — `./setup.sh prod` (генерирует systemd-юнит `deploy/party-crm.service`, установка вручную). CI в репозитории нет.
 
 Документация для пользователей — MkDocs (`docs/src/mkdocs.yml`), собирается стандартно (`mkdocs build` из `docs/src/`), тема `mkdocs`, язык `ru`.
 
@@ -114,7 +120,7 @@ AI-ассистенту разрешено выполнять без допол�
 - `python manage.py createsuperuser` и другие команды, создающие/меняющие данные;
 - удаление файлов, установка пакетов, операции вне каталога проекта.
 
-Команды из первого списка `setup.sh` умеет автоматически добавлять в `config.toml` Kimi Code как правила `[[permission.rules]]` с `decision = "allow"` (шаг 6, спрашивает при установке или управляется переменной `INSTALL_KIMI_ALLOW`). Блок правил помечен маркерами `# party-crm:`, поэтому при повторном запуске `setup.sh` он заменяется целиком, а не дублируется. При изменении этого списка обновляйте и шаг 6 в `setup.sh`, чтобы списки не расходились.
+Команды из первого списка `setup.sh` умеет автоматически добавлять в `config.toml` Kimi Code как правила `[[permission.rules]]` с `decision = "allow"` (шаг 7, спрашивает при установке или управляется переменной `INSTALL_KIMI_ALLOW`). Блок правил помечен маркерами `# party-crm:`, поэтому при повторном запуске `setup.sh` он заменяется целиком, а не дублируется. При изменении этого списка обновляйте и шаг 7 в `setup.sh`, чтобы списки не расходились.
 
 ## URL-маршруты
 
@@ -160,7 +166,7 @@ AI-ассистенту разрешено выполнять без допол�
 
 - Секреты и настройки окружения — только в `config/local_settings.py` (в .gitignore): `SECRET_KEY`, `DATABASES`, `EMAIL_*`, `REPORT_MONTH_EMAIL`. Не коммитить этот файл.
 - `DEBUG`, `ALLOWED_HOSTS` также задаются в `local_settings.py` (в `settings.py` их нет). `STATIC_URL` задан в `settings.py`, остальные `STATIC_*` — в `local_settings.py`.
-- HTTPS-hardening-настройки (`SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, HSTS и др.) не заданы — учитывать при деплой-изменениях.
+- HTTPS-hardening-настройки (`SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `SECURE_HSTS_SECONDS`, `SECURE_CONTENT_TYPE_NOSNIFF`) генерируются `setup.sh prod` в `local_settings.py` (при `HTTPS=0` — закомментированными); в `settings.py` и dev-шаблоне их нет.
 - Удаление объектов в `factory`, `newspaper`, `newspaper_numbers` читает id из `request.GET` при DELETE-запросе и не проверяет права — любой авторизованный пользователь может удалить любую запись.
 - В `my_distribution` POST-фильтры передаются напрямую в `distributions.get_all()` → `filter(**filter_by)` — при изменениях фильтров ограничивать допустимые ключи.
 
@@ -182,7 +188,7 @@ AI-ассистенту разрешено выполнять без допол�
 ### Высокая важность (безопасность)
 
 - `press/views.py` — DELETE-операции читают id из `request.GET.get('id')`; для деструктивных операций лучше URL-параметры или `request.POST`.
-- `config/settings.py` — не заданы `SECURE_SSL_REDIRECT`, `SECURE_HSTS_SECONDS`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `SECURE_CONTENT_TYPE_NOSNIFF`.
+- `config/settings.py` — не заданы `SECURE_SSL_REDIRECT`, `SECURE_HSTS_SECONDS`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `SECURE_CONTENT_TYPE_NOSNIFF` (prod-шаблон `setup.sh` генерирует их в `local_settings.py`, но существующие prod-инстансы, развёрнутые вручную, могли их не задать).
 - Нет шаблона `local_settings.example.py` для новых разработчиков/деплоев.
 - `press/services/distributions.py`, `factory.py` — `filter(**filter_by)` принимает произвольный dict из POST; нужен белый список ключей.
 

@@ -9,13 +9,28 @@
 #      (правила [[permission.rules]], см. «Разрешённые команды» в AGENTS.md).
 #
 # Использование:
-#   ./setup.sh                      # полная установка
+#   ./setup.sh                      # режим разработчика (dev, по умолчанию)
+#   ./setup.sh dev                  # то же самое явно
+#   ./setup.sh prod                 # развёртывание для запуска CRM (production)
 #   SKIP_PACKAGES=1 ./setup.sh      # без установки системных пакетов
 #   SKIP_POSTGRES=1 ./setup.sh      # без установки PostgreSQL и создания БД
 #   SKIP_VENV=1 ./setup.sh          # без venv и pip install
-#   SKIP_MIGRATE=1 ./setup.sh       # без применения миграций
+#   SKIP_MIGRATE=1 ./setup.sh       # без применения миграций (и collectstatic)
 #   INSTALL_KIMI_ALLOW=1 ./setup.sh # добавить разрешённые команды без вопроса
 #   INSTALL_KIMI_ALLOW=0 ./setup.sh # не добавлять и не спрашивать
+#
+# Режим prod дополнительно (см. шаг 6):
+#   - генерирует config/local_settings.py с DEBUG=False и HTTPS-hardening;
+#   - выполняет collectstatic в staticfiles/;
+#   - генерирует deploy/gunicorn.conf.py и deploy/party-crm.service
+#     (установка systemd-юнита — вручную, команды печатаются в конце).
+#
+# Параметры режима prod:
+#   APP_ALLOWED_HOSTS — домены через запятую для ALLOWED_HOSTS
+#                       (напр. "crm.example.com,www.crm.example.com";
+#                       если не задано — 'localhost' с TODO)
+#   HTTPS=1|0           — генерировать настройки TLS (SECURE_SSL_REDIRECT,
+#                         secure-куки, HSTS). По умолчанию 1
 #
 # Параметры БД (используются в local_settings.py и при создании БД):
 #   DB_NAME     (по умолчанию party_crm_db)
@@ -30,6 +45,15 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
+
+MODE="${1:-dev}"
+case "$MODE" in
+    dev|prod) ;;
+    *)
+        echo "Ошибка: неизвестный режим '$MODE'. Использование: ./setup.sh [dev|prod]" >&2
+        exit 1
+        ;;
+esac
 
 DB_NAME="${DB_NAME:-party_crm_db}"
 DB_USER="${DB_USER:-party_crm}"
@@ -104,8 +128,69 @@ if [ -f config/local_settings.py ]; then
     echo "config/local_settings.py уже существует, не трогаем."
 else
     SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(50))')"
-    cat > config/local_settings.py <<EOF
-# Сгенерировано setup.sh $(date +%Y-%m-%d). Файл в .gitignore, не коммитить.
+    if [ "$MODE" = "prod" ]; then
+        APP_ALLOWED_HOSTS="${APP_ALLOWED_HOSTS:-}"
+        if [ -z "$APP_ALLOWED_HOSTS" ]; then
+            ALLOWED_HOSTS_TODO="# TODO: указать домены (APP_ALLOWED_HOSTS при запуске setup.sh)
+"
+            ALLOWED_HOSTS_PY="'localhost'"
+            echo "ПРЕДУПРЕЖДЕНИЕ: APP_ALLOWED_HOSTS не задан, в ALLOWED_HOSTS подставлен 'localhost'."
+        else
+            ALLOWED_HOSTS_TODO=""
+            ALLOWED_HOSTS_PY="'$(echo "$APP_ALLOWED_HOSTS" | sed "s/ *, */','/g")'"
+        fi
+        HTTPS="${HTTPS:-1}"
+        if [ "$HTTPS" = "1" ]; then
+            HTTPS_SETTINGS="SECURE_SSL_REDIRECT = True
+SECURE_HSTS_SECONDS = 15768000
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True"
+        else
+            HTTPS_SETTINGS="# HTTPS=0: раскомментируйте после настройки TLS
+#SECURE_SSL_REDIRECT = True
+#SECURE_HSTS_SECONDS = 15768000
+#SESSION_COOKIE_SECURE = True
+#CSRF_COOKIE_SECURE = True"
+        fi
+        cat > config/local_settings.py <<EOF
+# Сгенерировано setup.sh (режим prod) $(date +%Y-%m-%d). Файл в .gitignore, не коммитить.
+from pathlib import Path
+
+SECRET_KEY = '$SECRET_KEY'
+
+DEBUG = False
+${ALLOWED_HOSTS_TODO}ALLOWED_HOSTS = [$ALLOWED_HOSTS_PY]
+
+STATIC_ROOT = Path(__file__).resolve().parent.parent / 'staticfiles'
+
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': '$DB_NAME',
+        'USER': '$DB_USER',
+        'PASSWORD': '$DB_PASSWORD',
+        'HOST': '$DB_HOST',
+        'PORT': '$DB_PORT',
+    }
+}
+
+# TODO: заполнить настройки почты для отправки отчётов
+EMAIL_HOST = 'smtp.example.com'
+EMAIL_PORT = 587
+EMAIL_HOST_USER = 'your-email@example.com'
+EMAIL_HOST_PASSWORD = 'your-email-password'
+EMAIL_USE_TLS = True
+
+REPORT_MONTH_EMAIL = ['recipient@example.com']
+
+# HTTPS-hardening
+SECURE_CONTENT_TYPE_NOSNIFF = True
+$HTTPS_SETTINGS
+EOF
+        echo "Создан config/local_settings.py (режим prod). Заполните EMAIL_* и проверьте ALLOWED_HOSTS."
+    else
+        cat > config/local_settings.py <<EOF
+# Сгенерировано setup.sh (режим dev) $(date +%Y-%m-%d). Файл в .gitignore, не коммитить.
 SECRET_KEY = '$SECRET_KEY'
 
 DEBUG = True
@@ -131,7 +216,8 @@ EMAIL_USE_TLS = True
 
 REPORT_MONTH_EMAIL = ['recipient@example.com']
 EOF
-    echo "Создан config/local_settings.py. Заполните настройки почты (EMAIL_*)."
+        echo "Создан config/local_settings.py. Заполните настройки почты (EMAIL_*)."
+    fi
 fi
 
 echo "=== Шаг 5. Миграции ==="
@@ -145,7 +231,42 @@ else
     echo "Миграции применены."
 fi
 
-echo "=== Шаг 6. Разрешённые команды для Kimi Code ==="
+if [ "$MODE" = "prod" ]; then
+    echo "=== Шаг 6. Статика и файлы запуска (prod) ==="
+
+    if [ "${SKIP_VENV:-0}" = "1" ] || [ "${SKIP_MIGRATE:-0}" = "1" ]; then
+        echo "collectstatic пропущен. Выполните вручную: python manage.py collectstatic --noinput"
+    else
+        ./venv/bin/python manage.py collectstatic --noinput
+        echo "Статика собрана в staticfiles/."
+    fi
+
+    PROJECT_DIR="$(pwd)"
+    mkdir -p deploy
+    cat > deploy/gunicorn.conf.py <<EOF
+# Сгенерировано setup.sh (режим prod) $(date +%Y-%m-%d).
+bind = '127.0.0.1:8000'
+workers = 3
+EOF
+    cat > deploy/party-crm.service <<EOF
+# Установка: см. итоговое сообщение setup.sh
+[Unit]
+Description=party_crm (gunicorn)
+After=network.target
+
+[Service]
+User=$(whoami)
+WorkingDirectory=$PROJECT_DIR
+ExecStart=$PROJECT_DIR/venv/bin/gunicorn --config $PROJECT_DIR/deploy/gunicorn.conf.py config.wsgi:application
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    echo "Сгенерированы deploy/gunicorn.conf.py и deploy/party-crm.service."
+fi
+
+echo "=== Шаг 7. Разрешённые команды для Kimi Code ==="
 
 # Список разрешённых команд проекта (см. раздел «Разрешённые команды» в AGENTS.md)
 # можно добавить в config.toml Kimi Code как правила [[permission.rules]].
@@ -273,7 +394,17 @@ EOF
 fi
 
 echo
-echo "Установка завершена. Следующие шаги:"
+echo "Установка завершена (режим $MODE). Следующие шаги:"
 echo "  1. Заполните EMAIL_* и REPORT_MONTH_EMAIL в config/local_settings.py"
-echo "  2. Суперпользователь:  ./venv/bin/python manage.py createsuperuser"
-echo "  3. Сервер разработки:  ./venv/bin/python manage.py runserver"
+if [ "$MODE" = "prod" ]; then
+    echo "  2. Проверьте ALLOWED_HOSTS и настройки TLS в config/local_settings.py"
+    echo "  3. Суперпользователь:  ./venv/bin/python manage.py createsuperuser"
+    echo "  4. Установите systemd-юнит (под root):"
+    echo "       sudo cp deploy/party-crm.service /etc/systemd/system/"
+    echo "       sudo systemctl daemon-reload"
+    echo "       sudo systemctl enable --now party-crm"
+    echo "  5. Настройте nginx как reverse proxy на 127.0.0.1:8000 (TLS)"
+else
+    echo "  2. Суперпользователь:  ./venv/bin/python manage.py createsuperuser"
+    echo "  3. Сервер разработки:  ./venv/bin/python manage.py runserver"
+fi
